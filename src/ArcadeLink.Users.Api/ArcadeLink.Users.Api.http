@@ -1,0 +1,6 @@
+@ArcadeLink.Users.Api_HostAddress = http://localhost:5206
+
+GET {{ArcadeLink.Users.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
