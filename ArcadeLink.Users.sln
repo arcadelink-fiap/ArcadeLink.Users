@@ -7,6 +7,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{5674278C-864
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArcadeLink.Users.Api", "src\ArcadeLink.Users.Api\ArcadeLink.Users.Api.csproj", "{F79956B2-4D61-46AA-A867-7D27D53E0E58}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{14760FCA-1C04-475C-8538-DA2FA1054E90}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArcadeLink.Users.Api.Tests", "tests\ArcadeLink.Users.Api.Tests\ArcadeLink.Users.Api.Tests.csproj", "{46FF5F3C-4732-4718-8DB6-FC18DFA78019}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,8 +24,13 @@ Global
 		{F79956B2-4D61-46AA-A867-7D27D53E0E58}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F79956B2-4D61-46AA-A867-7D27D53E0E58}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F79956B2-4D61-46AA-A867-7D27D53E0E58}.Release|Any CPU.Build.0 = Release|Any CPU
+		{46FF5F3C-4732-4718-8DB6-FC18DFA78019}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{46FF5F3C-4732-4718-8DB6-FC18DFA78019}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{46FF5F3C-4732-4718-8DB6-FC18DFA78019}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{46FF5F3C-4732-4718-8DB6-FC18DFA78019}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{F79956B2-4D61-46AA-A867-7D27D53E0E58} = {5674278C-864F-43D8-9D76-9E8468C8CCE4}
+		{46FF5F3C-4732-4718-8DB6-FC18DFA78019} = {14760FCA-1C04-475C-8538-DA2FA1054E90}
 	EndGlobalSection
 EndGlobal
