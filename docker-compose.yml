@@ -82,7 +82,7 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: guest
       RabbitMq__Password: guest
-      Payments__ApprovalRate: "0.8"
+      Payments__ApprovalRate: "1"
     ports:
       - "5100:8080"
     depends_on:
