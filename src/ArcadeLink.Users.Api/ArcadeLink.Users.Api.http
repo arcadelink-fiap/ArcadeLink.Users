@@ -1,6 +1,26 @@
 @ArcadeLink.Users.Api_HostAddress = http://localhost:5206
 
-GET {{ArcadeLink.Users.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Registrar usuário
+POST {{ArcadeLink.Users.Api_HostAddress}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "password": "Senha1234"
+}
+
+### Login
+POST {{ArcadeLink.Users.Api_HostAddress}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ada@example.com",
+  "password": "Senha1234"
+}
+
+### Listar usuários (requer Bearer token de um Admin)
+GET {{ArcadeLink.Users.Api_HostAddress}}/users
+Authorization: Bearer {{token}}
 
 ###
