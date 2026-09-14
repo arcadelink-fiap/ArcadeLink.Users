@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -92,8 +93,10 @@ app.UseExceptionHandler(errorApp =>
 });
 
 app.UseHttpsRedirection();
+app.UseHttpMetrics();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapMetrics();
 
 app.MapPost("/auth/register", async (
     RegisterRequest request,
