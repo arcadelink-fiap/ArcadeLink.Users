@@ -8,3 +8,4 @@ data:
   Jwt__Audience: "ArcadeLink"
   RabbitMq__Host: "rabbitmq"
   RabbitMq__Username: "guest"
+  Redis__ConnectionString: "redis:6379"

@@ -1,4 +1,6 @@
 @ArcadeLink.Users.Api_HostAddress = http://localhost:5206
+@Kong_HostAddress = http://localhost:8000
+@userId = 00000000-0000-0000-0000-000000000000
 
 ### Registrar usuário
 POST {{ArcadeLink.Users.Api_HostAddress}}/auth/register
@@ -19,8 +21,35 @@ Content-Type: application/json
   "password": "Senha1234"
 }
 
-### Listar usuários (requer Bearer token de um Admin)
+### Listar usuários (requer X-User-Id/X-User-Role de um Admin — o serviço não lê mais Authorization)
 GET {{ArcadeLink.Users.Api_HostAddress}}/users
+X-User-Id: {{userId}}
+X-User-Role: Admin
+
+### === A partir daqui: mesmos endpoints através do Kong (ponto de entrada único em k8s) ===
+
+### [Kong] Registrar usuário — rota pública, sem JWT
+POST {{Kong_HostAddress}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Ada Lovelace",
+  "email": "ada@example.com",
+  "password": "Senha1234"
+}
+
+### [Kong] Login — rota pública, sem JWT
+POST {{Kong_HostAddress}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ada@example.com",
+  "password": "Senha1234"
+}
+
+### [Kong] Listar usuários — rota protegida (Kong valida o JWT e injeta X-User-Id/X-User-Role;
+### o serviço não lê mais o header Authorization diretamente)
+GET {{Kong_HostAddress}}/users
 Authorization: Bearer {{token}}
 
 ###

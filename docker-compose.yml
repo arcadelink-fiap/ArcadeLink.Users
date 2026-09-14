@@ -26,6 +26,16 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+
   users-api:
     build:
       context: .
@@ -39,6 +49,7 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: guest
       RabbitMq__Password: guest
+      Redis__ConnectionString: redis:6379
     ports:
       - "5206:8080"
     depends_on:
@@ -46,6 +57,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: on-failure
 
   catalog-api:
@@ -55,12 +68,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=arcadelink_catalog;Username=postgres;Password=postgres
-      Jwt__Issuer: ArcadeLink.Users
-      Jwt__Audience: ArcadeLink
-      Jwt__Key: dev-only-change-me-arcadelink-shared-jwt-signing-key-32bytes-min
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: guest
       RabbitMq__Password: guest
+      Redis__ConnectionString: redis:6379
+      Mongo__ConnectionString: mongodb://mongodb:27017
+      Mongo__Database: arcadelink_catalog
     ports:
       - "5201:8080"
     depends_on:
@@ -68,6 +81,10 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      redis:
+        condition: service_started
+      mongodb:
+        condition: service_started
     restart: on-failure
 
   payments-api:
@@ -76,34 +93,18 @@ services:
       dockerfile: Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      Jwt__Issuer: ArcadeLink.Users
-      Jwt__Audience: ArcadeLink
-      Jwt__Key: dev-only-change-me-arcadelink-shared-jwt-signing-key-32bytes-min
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: guest
       RabbitMq__Password: guest
       Payments__ApprovalRate: "1"
+      Redis__ConnectionString: redis:6379
     ports:
       - "5100:8080"
     depends_on:
       rabbitmq:
         condition: service_healthy
-    restart: on-failure
-
-  notifications-api:
-    build:
-      context: ../ArcadeLink.Notifications
-      dockerfile: Dockerfile
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      RabbitMq__Host: rabbitmq
-      RabbitMq__Username: guest
-      RabbitMq__Password: guest
-    ports:
-      - "5040:8080"
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+      redis:
+        condition: service_started
     restart: on-failure
 
 volumes:

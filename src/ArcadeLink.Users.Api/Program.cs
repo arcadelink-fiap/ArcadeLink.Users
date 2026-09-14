@@ -1,4 +1,3 @@
-using System.Text;
 using ArcadeLink.Contracts;
 using ArcadeLink.Users.Api.Auth;
 using ArcadeLink.Users.Api.Caching;
@@ -7,11 +6,10 @@ using ArcadeLink.Users.Api.Domain;
 using ArcadeLink.Users.Api.Models;
 using ArcadeLink.Users.Api.Validation;
 using MassTransit;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.IdentityModel.Tokens;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,23 +27,9 @@ builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddStackExchangeRedisCache(options =>
     options.Configuration = builder.Configuration["Redis:ConnectionString"]);
 
-var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-    ?? throw new InvalidOperationException("Missing Jwt configuration section.");
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtOptions.Issuer,
-            ValidAudience = jwtOptions.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key))
-        };
-    });
+builder.Services.AddAuthentication(KongHeaderPrincipalBuilder.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, KongHeaderAuthenticationHandler>(
+        KongHeaderPrincipalBuilder.SchemeName, options => { });
 
 builder.Services.AddAuthorization();
 

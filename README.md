@@ -16,6 +16,24 @@ microsserviços orientada a eventos do FIAP Cloud Games (FCG) — Tech Challenge
 Não há endpoint de auto-promoção a Admin — hoje a única forma de criar um Admin é alterar a coluna
 `Role` diretamente no banco (`arcadelink_users`, tabela `Users`).
 
+## Autenticação via Gateway
+
+A partir da Fase 3, este serviço **não valida mais JWT sozinho**. `POST /auth/register` e
+`POST /auth/login` continuam públicos e emitindo o token normalmente (isso não mudou — o Users
+continua sendo quem assina os tokens). Mas as rotas `Admin` (`GET /users`, `GET /users/{id}`,
+`DELETE /users/{id}`) passam a confiar nos headers `X-User-Id`/`X-User-Role` injetados pelo API
+Gateway (Kong) depois de ele validar o JWT — ver
+`src/ArcadeLink.Users.Api/Auth/KongHeaderAuthenticationHandler.cs` e
+`Auth/KongHeaderPrincipalBuilder.cs`.
+
+Fora do Kong (dev local direto, `dotnet run`/compose), simule a autenticação passando esses dois
+headers manualmente em vez de um Bearer token:
+
+```
+X-User-Id: <guid do usuário>
+X-User-Role: Admin
+```
+
 ## Como rodar localmente
 
 Pré-requisitos: .NET 8 SDK, e Postgres + RabbitMQ rodando (`docker start postgres rabbitmq` — ver
@@ -41,13 +59,14 @@ compose, k8s), use a sintaxe de variável de ambiente do ASP.NET Core (`__` no l
 | Variável de ambiente | Descrição | Exemplo |
 |---|---|---|
 | `ConnectionStrings__Postgres` | Connection string do Postgres (`arcadelink_users`). | `Host=postgres;Port=5432;Database=arcadelink_users;Username=postgres;Password=postgres` |
-| `Jwt__Issuer` | Issuer do JWT emitido no login. **Precisa ser idêntico** em Catalog/Payments (Etapa 6). | `ArcadeLink.Users` |
-| `Jwt__Audience` | Audience do JWT. **Idêntico** em Catalog/Payments. | `ArcadeLink` |
-| `Jwt__Key` | Chave de assinatura HMAC-SHA256 (≥32 bytes). **Idêntica** em Catalog/Payments — nunca deixar divergir. | `dev-only-change-me-arcadelink-shared-jwt-signing-key-32bytes-min` |
+| `Jwt__Issuer` | Issuer usado ao emitir o token no login. | `ArcadeLink.Users` |
+| `Jwt__Audience` | Audience usada ao emitir o token. | `ArcadeLink` |
+| `Jwt__Key` | Chave de assinatura HMAC-SHA256 (≥32 bytes) usada para assinar o token no login; o **Kong** precisa ter essa mesma chave configurada no seu plugin `jwt` (`ArcadeLink.Orchestration/k8s/kong/kong-declarative-config.yaml`) para conseguir validar os tokens emitidos aqui. | `dev-only-change-me-arcadelink-shared-jwt-signing-key-32bytes-min` |
 | `Jwt__ExpiresInMinutes` | Validade do token emitido. | `60` |
 | `RabbitMq__Host` | Host do broker. | `localhost` (dev) / `rabbitmq` (compose/k8s) |
 | `RabbitMq__Username` | Usuário do broker. | `guest` |
 | `RabbitMq__Password` | Senha do broker. | `guest` |
+| `Redis__ConnectionString` | Connection string do Redis (cache do lookup de usuário no login). | `localhost:6379` (dev) / `redis:6379` (k8s, ver repo de orquestração) |
 
 ## Docker
 
@@ -72,12 +91,16 @@ manualmente contra o container.
 
 ## Orquestração completa (docker-compose)
 
-Este repositório é o **repo âncora**: como o desafio não usa um 5º repositório de orquestração, o
-`docker-compose.yml` que sobe a aplicação inteira mora aqui (`ArcadeLink.Users/docker-compose.yml`).
-Ele assume que os quatro repositórios (`ArcadeLink.Users`, `ArcadeLink.Catalog`,
-`ArcadeLink.Payments`, `ArcadeLink.Notifications`) estão clonados **lado a lado**, no mesmo
-diretório pai — os serviços `catalog-api`/`payments-api`/`notifications-api` usam
-`build.context: ../ArcadeLink.<Nome>` para buildar a partir dos repos irmãos.
+Este repositório é o **repo âncora**: o `docker-compose.yml` que sobe o ambiente de desenvolvimento
+local mora aqui (`ArcadeLink.Users/docker-compose.yml`). Ele assume que `ArcadeLink.Catalog` e
+`ArcadeLink.Payments` estão clonados **lado a lado**, no mesmo diretório pai — os serviços
+`catalog-api`/`payments-api` usam `build.context: ../ArcadeLink.<Nome>` para buildar a partir dos
+repos irmãos. Desde a Fase 3, o compose também sobe `redis` e `mongodb` (infra usada por
+Catalog/Users/Payments — ver os READMEs de cada um); `notifications-api` **saiu** do compose, já que
+o `ArcadeLink.Notifications` foi substituído pela Function serverless
+(`ArcadeLink.NotificationsFunction`, rodada localmente via `func start`, fora do compose — ver o
+README daquele repo). O Kong (Gateway) só existe nos manifestos Kubernetes do
+`ArcadeLink.Orchestration`, não no compose.
 
 ```bash
 cd ArcadeLink.Users
@@ -92,12 +115,14 @@ docker compose up --build -d
 ```
 
 Sobe: Postgres (com `arcadelink_users` e `arcadelink_catalog`, criados via script em
-`docker/postgres-init/`), RabbitMQ, e os 4 serviços — nas mesmas portas do host usadas em dev local
-(Users `5206`, Catalog `5201`, Payments `5100`, Notifications `5040`; Postgres `5432`; RabbitMQ
-`5672`/`15672`). Todas as configs (connection strings, JWT, RabbitMQ) são passadas via variáveis de
-ambiente no `docker-compose.yml` — nada de hardcoded.
+`docker/postgres-init/`), RabbitMQ, Redis, MongoDB e os 3 serviços de aplicação — nas mesmas portas
+do host usadas em dev local (Users `5206`, Catalog `5201`, Payments `5100`; Postgres `5432`;
+RabbitMQ `5672`/`15672`; Redis `6379`; MongoDB `27017`). Todas as configs (connection strings, JWT,
+RabbitMQ, Redis, Mongo) são passadas via variáveis de ambiente no `docker-compose.yml` — nada de
+hardcoded.
 
-**Testado de ponta a ponta (2026-07-13)**: com `docker compose up`, o fluxo de cadastro (Checkpoint 1)
+**Testado de ponta a ponta na Fase 2 (2026-07-13)**, quando o compose ainda subia 4 serviços de
+aplicação incluindo `notifications-api`: o fluxo de cadastro (Checkpoint 1)
 e o fluxo de compra completo — caminhos `Approved` e `Rejected` (Checkpoint 2) — funcionam
 exatamente como em dev local, sem nenhuma mudança de código.
 
@@ -153,6 +178,13 @@ Todos os `Deployment` usam `imagePullPolicy: Never` (imagens só locais, sem reg
 em `ConfigMap`, credenciais/chave JWT/connection strings em `Secret` (valores placeholder de
 desenvolvimento, os mesmos usados em todo o projeto — nunca reais).
 
+**Pendência conhecida**: esta seção descreve o fluxo de Kubernetes herdado da Fase 2 (Postgres +
+RabbitMQ + os 4 serviços originais, sem Kong/Redis/Mongo/observabilidade e ainda referenciando
+`ArcadeLink.Notifications`, substituído na Fase 3 por `ArcadeLink.NotificationsFunction`). O guia
+completo e atualizado — ordem de `kubectl apply` incluindo o repo `ArcadeLink.Orchestration` (Redis,
+MongoDB, Prometheus/Grafana, Kong) — está no
+[README do ArcadeLink.Orchestration](../ArcadeLink.Orchestration/README.md).
+
 Para testar de fora do cluster: `kubectl port-forward svc/users-api 18206:80` e
 `kubectl port-forward svc/catalog-api 18201:80` (em processos separados), depois `curl
 localhost:18206/auth/register` etc., igual ao fluxo de dev local.
@@ -167,9 +199,12 @@ dev local e via docker-compose, sem nenhuma mudança de código.
 dotnet test
 ```
 
-`tests/ArcadeLink.Users.Api.Tests` (xUnit, 16 testes): `UserValidationTests` (regras de e-mail/
-senha), `PasswordHasherServiceTests` (hash/verify), `JwtTokenServiceTests` (issuer/audience/claim de
-role/expiração). Não precisa de Postgres/RabbitMQ rodando.
+`tests/ArcadeLink.Users.Api.Tests` (xUnit, 23 testes): os 16 originais — `UserValidationTests` (regras
+de e-mail/senha), `PasswordHasherServiceTests` (hash/verify), `JwtTokenServiceTests` (issuer/audience/
+claim de role/expiração) — mais dois grupos novos da Fase 3: `JsonDistributedCacheTests` (serialização
+JSON do cache do Redis) e `KongHeaderPrincipalBuilderTests` (construção do `ClaimsPrincipal` a partir
+dos headers `X-User-Id`/`X-User-Role`, incluindo os casos de header ausente/malformado). Não precisa
+de Postgres/RabbitMQ/Redis rodando.
 
 ## Contratos de eventos
 
@@ -183,4 +218,5 @@ entre a cópia deste repo e a dos consumidores quebra a integração silenciosam
 
 Evento definido aqui:
 
-- `UserCreatedEvent(Guid UserId, string Name, string Email)` — consumido por `ArcadeLink.Notifications`.
+- `UserCreatedEvent(Guid UserId, string Name, string Email)` — consumido pela `WelcomeEmailFunction`
+  em `ArcadeLink.NotificationsFunction` (a partir da Fase 3; era `ArcadeLink.Notifications` na Fase 2).
