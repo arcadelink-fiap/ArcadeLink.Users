@@ -1,6 +1,7 @@
 using System.Text;
 using ArcadeLink.Contracts;
 using ArcadeLink.Users.Api.Auth;
+using ArcadeLink.Users.Api.Caching;
 using ArcadeLink.Users.Api.Data;
 using ArcadeLink.Users.Api.Domain;
 using ArcadeLink.Users.Api.Models;
@@ -9,6 +10,7 @@ using MassTransit;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +24,9 @@ builder.Services.AddDbContext<UsersDbContext>(options =>
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 builder.Services.AddSingleton<PasswordHasherService>();
 builder.Services.AddSingleton<JwtTokenService>();
+
+builder.Services.AddStackExchangeRedisCache(options =>
+    options.Configuration = builder.Configuration["Redis:ConnectionString"]);
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
     ?? throw new InvalidOperationException("Missing Jwt configuration section.");
@@ -138,9 +143,20 @@ app.MapPost("/auth/login", async (
     LoginRequest request,
     UsersDbContext db,
     PasswordHasherService passwordHasher,
-    JwtTokenService tokenService) =>
+    JwtTokenService tokenService,
+    IDistributedCache cache) =>
 {
-    var user = await db.Users.SingleOrDefaultAsync(u => u.Email == request.Email);
+    var cacheKey = $"user-by-email:{request.Email}";
+    var user = await JsonDistributedCache.GetAsync<User>(cache, cacheKey);
+    if (user is null)
+    {
+        user = await db.Users.SingleOrDefaultAsync(u => u.Email == request.Email);
+        // Cacheia inclusive o hash de senha — aceitável aqui porque o Redis é infraestrutura interna
+        // só deste desafio (dev, sem exposição externa); numa API real caberia um DTO sem o hash.
+        if (user is not null)
+            await JsonDistributedCache.SetAsync(cache, cacheKey, user, TimeSpan.FromSeconds(60));
+    }
+
     if (user is null || !passwordHasher.Verify(user, request.Password))
         return Results.Unauthorized();
 
@@ -168,7 +184,7 @@ app.MapGet("/users/{id:guid}", async (Guid id, UsersDbContext db) =>
 .WithName("GetUser")
 .WithOpenApi();
 
-app.MapDelete("/users/{id:guid}", async (Guid id, UsersDbContext db) =>
+app.MapDelete("/users/{id:guid}", async (Guid id, UsersDbContext db, IDistributedCache cache) =>
 {
     var user = await db.Users.FindAsync(id);
     if (user is null)
@@ -176,6 +192,9 @@ app.MapDelete("/users/{id:guid}", async (Guid id, UsersDbContext db) =>
 
     db.Users.Remove(user);
     await db.SaveChangesAsync();
+
+    await cache.RemoveAsync($"user-by-email:{user.Email}");
+
     return Results.NoContent();
 })
 .RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Admin)))
