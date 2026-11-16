@@ -1,0 +1,136 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  SERVICE: users-api
+  ECR_REPOSITORY: arcadelink/users
+  SOLUTION: ArcadeLink.Users.sln
+
+jobs:
+  test:
+    name: Build e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Instalar .NET 8
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Testes
+        run: dotnet test "$SOLUTION" --configuration Release
+
+  deploy:
+    name: Imagem, scan e deploy
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+    steps:
+      - name: Validar variáveis do repositório
+        shell: bash
+        run: |
+          missing=0
+          for v in AWS_REGION AWS_ROLE_ARN EKS_CLUSTER_NAME ECR_REGISTRY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::A variável do GitHub '$v' não está definida (Settings > Secrets and variables > Actions > Variables)."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Credenciais AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no ECR
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Verificar se a imagem já existe no ECR
+        id: image
+        shell: bash
+        run: |
+          # Repositórios ECR são IMMUTABLE: após um teardown o mesmo SHA não pode ser reenviado.
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+            --image-ids imageTag="$GITHUB_SHA" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build da imagem
+        if: steps.image.outputs.exists != 'true'
+        shell: bash
+        run: |
+          docker build \
+            --build-arg APP_VERSION="${GITHUB_SHA::7}" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA" .
+
+      - name: Scan de vulnerabilidades (Trivy)
+        if: steps.image.outputs.exists != 'true'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      - name: Push da imagem
+        if: steps.image.outputs.exists != 'true'
+        shell: bash
+        run: docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+
+      - name: Configurar kubeconfig
+        shell: bash
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Aplicar manifests
+        shell: bash
+        run: kubectl apply -f k8s/serviceaccount.yaml -f k8s/service.yaml -f k8s/configmap.yaml
+
+      - name: Aplicar Deployment (rolling update)
+        shell: bash
+        run: |
+          export IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          # shellcheck disable=SC2016  # envsubst precisa do literal ${IMAGE}
+          envsubst '${IMAGE}' < k8s/deployment.yaml | kubectl apply -f -
+
+      - name: Aguardar rollout (com rollback)
+        shell: bash
+        run: |
+          kubectl rollout status "deployment/$SERVICE" -n arcadelink --timeout=300s || {
+            echo "::error::Rollout falhou; executando rollback."
+            kubectl rollout undo "deployment/$SERVICE" -n arcadelink
+            exit 1
+          }

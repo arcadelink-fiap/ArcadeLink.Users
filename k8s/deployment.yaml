@@ -2,8 +2,14 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: users-api
+  namespace: arcadelink
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: users-api
@@ -12,10 +18,11 @@ spec:
       labels:
         app: users-api
     spec:
+      serviceAccountName: users-api
       containers:
         - name: users-api
-          image: localhost/arcadelink-users:latest
-          imagePullPolicy: Never
+          image: ${IMAGE}
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           envFrom:
@@ -23,3 +30,36 @@ spec:
                 name: users-api-config
             - secretRef:
                 name: users-api-secret
+            - configMapRef:
+                name: messaging-config
+                optional: true
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi

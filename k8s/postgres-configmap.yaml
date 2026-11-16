@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: postgres-init
-data:
-  001-create-additional-databases.sql: |
-    CREATE DATABASE arcadelink_catalog;
