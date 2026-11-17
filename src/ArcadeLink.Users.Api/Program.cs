@@ -3,6 +3,8 @@ using ArcadeLink.Users.Api.Auth;
 using ArcadeLink.Users.Api.Caching;
 using ArcadeLink.Users.Api.Data;
 using ArcadeLink.Users.Api.Domain;
+using ArcadeLink.Users.Api.Health;
+using ArcadeLink.Users.Api.Messaging;
 using ArcadeLink.Users.Api.Models;
 using ArcadeLink.Users.Api.Validation;
 using MassTransit;
@@ -33,23 +35,18 @@ builder.Services.AddAuthentication(KongHeaderPrincipalBuilder.SchemeName)
 
 builder.Services.AddAuthorization();
 
-builder.Services.AddMassTransit(x =>
-{
-    x.UsingRabbitMq((context, cfg) =>
-    {
-        cfg.Host(builder.Configuration["RabbitMq:Host"], "/", h =>
-        {
-            h.Username(builder.Configuration["RabbitMq:Username"]!);
-            h.Password(builder.Configuration["RabbitMq:Password"]!);
-        });
-    });
-});
+builder.Services.AddArcadeLinkMessaging(builder.Configuration, endpointPrefix: null);
 
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    scope.ServiceProvider.GetRequiredService<UsersDbContext>().Database.Migrate();
+    var db = scope.ServiceProvider.GetRequiredService<UsersDbContext>();
+    db.Database.Migrate();
+
+    var adminSeed = builder.Configuration.GetSection(AdminSeedOptions.SectionName).Get<AdminSeedOptions>() ?? new();
+    if (await AdminSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<PasswordHasherService>(), adminSeed))
+        app.Logger.LogInformation("Admin inicial criado para {Email}", adminSeed.Email);
 }
 
 if (app.Environment.IsDevelopment())
@@ -187,6 +184,9 @@ app.MapDelete("/users/{id:guid}", async (Guid id, UsersDbContext db, IDistribute
 .RequireAuthorization(policy => policy.RequireRole(nameof(UserRole.Admin)))
 .WithName("DeleteUser")
 .WithOpenApi();
+
+app.MapGet("/health", (IConfiguration configuration) => Results.Ok(HealthInfo.Create(configuration, "users-api")))
+    .WithName("Health");
 
 app.Run();
 

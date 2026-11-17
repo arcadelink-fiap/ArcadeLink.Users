@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: arcadelink_users
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -17,6 +17,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -36,19 +39,31 @@ services:
     ports:
       - "27017:27017"
 
+  opensearch:
+    image: opensearchproject/opensearch:2
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+
   users-api:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=arcadelink_users;Username=postgres;Password=postgres
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=arcadelink_users;Username=postgres;Password=${POSTGRES_PASSWORD}
       Jwt__Issuer: ArcadeLink.Users
       Jwt__Audience: ArcadeLink
-      Jwt__Key: dev-only-change-me-arcadelink-shared-jwt-signing-key-32bytes-min
+      Jwt__Key: ${JWT_KEY}
+      AdminSeed__Email: ${ADMIN_SEED_EMAIL}
+      AdminSeed__Password: ${ADMIN_SEED_PASSWORD}
       RabbitMq__Host: rabbitmq
-      RabbitMq__Username: guest
-      RabbitMq__Password: guest
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
       Redis__ConnectionString: redis:6379
     ports:
       - "5206:8080"
@@ -67,13 +82,15 @@ services:
       dockerfile: Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=arcadelink_catalog;Username=postgres;Password=postgres
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=arcadelink_catalog;Username=postgres;Password=${POSTGRES_PASSWORD}
       RabbitMq__Host: rabbitmq
-      RabbitMq__Username: guest
-      RabbitMq__Password: guest
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
       Redis__ConnectionString: redis:6379
       Mongo__ConnectionString: mongodb://mongodb:27017
       Mongo__Database: arcadelink_catalog
+      Search__Endpoint: http://opensearch:9200
+      Search__UseAwsSigV4: "false"
     ports:
       - "5201:8080"
     depends_on:
@@ -85,6 +102,8 @@ services:
         condition: service_started
       mongodb:
         condition: service_started
+      opensearch:
+        condition: service_started
     restart: on-failure
 
   payments-api:
@@ -94,8 +113,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       RabbitMq__Host: rabbitmq
-      RabbitMq__Username: guest
-      RabbitMq__Password: guest
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
       Payments__ApprovalRate: "1"
       Redis__ConnectionString: redis:6379
     ports:

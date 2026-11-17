@@ -2,10 +2,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: users-api-config
+  namespace: arcadelink
 data:
-  ASPNETCORE_ENVIRONMENT: "Development"
+  ASPNETCORE_ENVIRONMENT: "Production"
+  RabbitMq__Host: "rabbitmq"
   Jwt__Issuer: "ArcadeLink.Users"
   Jwt__Audience: "ArcadeLink"
-  RabbitMq__Host: "rabbitmq"
-  RabbitMq__Username: "guest"
-  Redis__ConnectionString: "redis:6379"
